@@ -16,3 +16,9 @@ pub struct UserNew<'a> {
     pub address: &'a str,
     pub date_created: &'a str,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserJson {
+    pub name: String,
+    pub address: String,
+}

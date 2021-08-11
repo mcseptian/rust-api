@@ -1,8 +1,9 @@
-# Requirement
+# Requirement for Windows
+- Toolchain used `stable-x86_64-pc-windows-gnu`
 - [sqlite tools](https://www.sqlite.org/2021/sqlite-tools-win32-x86-3360000.zip)
 - [sqlite dll](https://www.sqlite.org/2021/sqlite-dll-win32-x86-3360000.zip)
 - [mingw](https://sourceforge.net/projects/mingw-w64/files/latest/download)
-- `SQLITE3_LIB_DIR` linked to directory contain sqlite tools & dlls
+- `SQLITE3_LIB_DIR` linked to directory contains sqlite tools & dlls
 - `PATH` linked to directory mingw64\bin
 
 # Command
@@ -78,16 +79,16 @@
         use diesel::RunQueryDsl;
         use chrono;
 
-        // public function
+        /// public function for default route to import
         pub async fn root() -> Result<HttpResponse, Error> {
             Ok(HttpResponse::build(StatusCode::OK)
                 .body("REST API in Rust!"))
         }
 
-        // public function
+        /// public function for /users route to import
         pub async fn create_user(
             pool: web::Data<Pool>,
-            item: web::Json<User>,
+            item: web::Json<UserJson>,
         ) -> Result<HttpResponse, Error> {
             Ok(web::block(|| new_user(pool, item))
                 .await
@@ -95,10 +96,10 @@
                 .map_err(|_| HttpResponse::InternalServerError())?)
         }
 
-        // private function
+        /// private function for create_user route
         fn new_user(
             pool: web::Data<Pool>,
-            item: web::Json<User>,
+            item: web::Json<UserJson>,
         ) -> Result<User, diesel::result::Error> {
             let db_connection = pool.get().unwrap();
 
@@ -125,7 +126,7 @@
             }
         }
 
-        // public function
+        /// public function for endpoint /getusers to import
         pub async fn get_users(pool: web::Data<Pool>) -> Result<HttpResponse, Error> {
             Ok(list_users(pool)
                 .await
@@ -133,7 +134,7 @@
                 .map_err(|_| HttpResponse::InternalServerError())?)
         }
 
-        // private function
+        /// private function for get_users route
         async fn list_users(pool: web::Data<Pool>) -> Result<Vec<User>, diesel::result::Error> {
             use crate::schema::users::dsl::*;
             let db_connection = pool.get().unwrap();
@@ -176,4 +177,16 @@
             .run()
             .await
         }
+        ```
+- check using curl
+    - Get user 
+      ```shell
+        curl "http://localhost:8080/getusers"
+        ```
+    - Post newuser
+      ```shell
+        curl "http://localhost:8080/users" \
+            -X POST \
+            -d "{\r\n  \"name\": \"Fey\",\r\n  \"address\": \"145 Av Stovia\"\r\n}" \
+            -H "content-type: application/json" 
         ```

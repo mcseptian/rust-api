@@ -1,4 +1,4 @@
-use crate::models::{User, UserNew};
+use crate::models::{User, UserNew, UserJson};
 use crate::schema::users::dsl::*;
 use crate::Pool;
 
@@ -17,7 +17,7 @@ pub async fn root() -> Result<HttpResponse, Error> {
 
 pub async fn create_user(
     pool: web::Data<Pool>,
-    item: web::Json<User>,
+    item: web::Json<UserJson>,
 ) -> Result<HttpResponse, Error> {
     Ok(web::block(|| new_user(pool, item))
         .await
@@ -27,7 +27,7 @@ pub async fn create_user(
 
 fn new_user(
     pool: web::Data<Pool>,
-    item: web::Json<User>,
+    item: web::Json<UserJson>,
 ) -> Result<User, diesel::result::Error> {
     let db_connection = pool.get().unwrap();
 
