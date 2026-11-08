@@ -1,17 +1,17 @@
-#[macro_use]
-extern crate diesel;
-
-mod db_manager;
-mod macros;
-mod models;
-mod routes;
-mod schema;
-
 use actix_web::{web, App, HttpServer};
-use diesel::r2d2::{self, ConnectionManager};
+use diesel::r2d2::ConnectionManager;
 use diesel::SqliteConnection;
+use rust_api::{routes, Pool};
 
-pub type Pool = r2d2::Pool<ConnectionManager<SqliteConnection>>;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pool_type_is_available() {
+        let _ = Pool::builder();
+    }
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -19,7 +19,7 @@ async fn main() -> std::io::Result<()> {
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL not found");
     let database_pool = Pool::builder()
-        .build(ConnectionManager::new(database_url))
+        .build(ConnectionManager::<SqliteConnection>::new(database_url))
         .expect("failed to build database connection pool");
 
     HttpServer::new(move || {

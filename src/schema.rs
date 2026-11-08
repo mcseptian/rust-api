@@ -28,3 +28,14 @@ table! {
         updated_at -> Text,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::schema::{tasks, users};
+
+    #[test]
+    fn schema_tables_are_defined() {
+        let _ = users::table;
+        let _ = tasks::table;
+    }
+}

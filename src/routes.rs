@@ -129,14 +129,17 @@ pub async fn update_db(pool: web::Data<Pool>) -> actix_web::Result<actix_web::Ht
     Ok(actix_web::HttpResponse::Ok().body("Database update and backup complete!"))
 }
 
+fn is_valid_task_status(status: &str) -> bool {
+    matches!(status, "to do" | "in progress" | "done" | "blocked")
+}
+
 pub async fn create_task(
     pool: web::Data<Pool>,
     item: web::Json<TaskJson>,
 ) -> Result<HttpResponse, Error> {
-    let allowed_statuses = ["to do", "in progress", "done", "blocked"];
     let status = item.status.clone().unwrap_or_else(|| "to do".to_string());
 
-    if !allowed_statuses.contains(&status.as_str()) {
+    if !is_valid_task_status(&status) {
         return Ok(HttpResponse::BadRequest().body("invalid task status"));
     }
 
@@ -218,4 +221,23 @@ async fn list_tasks(pool: web::Data<Pool>) -> Result<Vec<TaskView>, diesel::resu
         .collect();
 
     Ok(task_views)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_task_statuses_are_accepted() {
+        for status in ["to do", "in progress", "done", "blocked"] {
+            assert!(is_valid_task_status(status));
+        }
+    }
+
+    #[test]
+    fn invalid_task_statuses_are_rejected() {
+        for status in ["", "todo", "done!", "unknown"] {
+            assert!(!is_valid_task_status(status));
+        }
+    }
 }

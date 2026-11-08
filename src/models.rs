@@ -76,3 +76,35 @@ pub struct TaskView {
     pub created_at: String,
     pub updated_at: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn user_json_deserializes() {
+        let value: UserJson =
+            serde_json::from_str(r#"{"name":"Ian","address":"11 Apple Street"}"#).unwrap();
+        assert_eq!(value.name, "Ian");
+        assert_eq!(value.address, "11 Apple Street");
+    }
+
+    #[test]
+    fn task_json_deserializes_with_optional_status() {
+        let value: TaskJson =
+            serde_json::from_str(r#"{"user_id":1,"title":"Task","description":"Details"}"#)
+                .unwrap();
+        assert_eq!(value.user_id, 1);
+        assert!(value.status.is_none());
+    }
+
+    #[test]
+    fn task_json_deserializes_with_status() {
+        let value: TaskJson = serde_json::from_str(
+            r#"{"user_id":1,"title":"Task","description":"Details","status":"done"}"#,
+        )
+        .unwrap();
+        assert_eq!(value.status.as_deref(), Some("done"));
+    }
+}

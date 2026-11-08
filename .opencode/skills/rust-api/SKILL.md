@@ -46,6 +46,7 @@ This skill is applied to the `rust-api` Actix-web service in this workspace.
 - `src/schema.rs`: Diesel table definitions
 - `src/db_manager.rs`: SQLite backup, attach, and detach helpers
 - `src/macros.rs`: reusable SQL macros
+- `src/pool.rs`: r2d2 connection pool type alias
 
 ### Available routes
 - `GET /` — health/info endpoint

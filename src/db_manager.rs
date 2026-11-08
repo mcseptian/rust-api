@@ -46,3 +46,56 @@ impl DailyDbManager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use diesel::Connection;
+
+    #[test]
+    fn resolve_date_uses_provided_value() {
+        assert_eq!(
+            DailyDbManager::resolve_date(Some("2026-08-02")),
+            "2026-08-02"
+        );
+    }
+
+    #[test]
+    fn resolve_date_defaults_to_ten_character_date() {
+        let resolved = DailyDbManager::resolve_date(None);
+        assert_eq!(resolved.len(), 10);
+    }
+
+    #[test]
+    fn attach_fails_for_missing_archive_file() {
+        let connection = SqliteConnection::establish(":memory:").unwrap();
+        let result =
+            DailyDbManager::attach_historical_db(&connection, Some("1999-01-01"), "missing_db");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn attach_and_detach_succeed_for_existing_archive() {
+        use std::fs;
+
+        let _ = fs::create_dir_all("./archive");
+        let archive_path = "./archive/db_2026-08-02.sqlite";
+        let _ = fs::remove_file(archive_path);
+
+        let archive_conn = SqliteConnection::establish(archive_path).unwrap();
+        archive_conn
+            .batch_execute(
+                "CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, timestamp TEXT NOT NULL);",
+            )
+            .unwrap();
+        drop(archive_conn);
+
+        let main_conn = SqliteConnection::establish(":memory:").unwrap();
+        let alias = "attached_db";
+
+        DailyDbManager::attach_historical_db(&main_conn, Some("2026-08-02"), alias).unwrap();
+        DailyDbManager::detach_historical_db(&main_conn, alias).unwrap();
+
+        let _ = fs::remove_file(archive_path);
+    }
+}
