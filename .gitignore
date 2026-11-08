@@ -1,2 +1,4 @@
 /target
+/archive
 Cargo.lock
+*.db

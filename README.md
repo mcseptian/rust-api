@@ -1,192 +1,187 @@
-# Requirement for Windows
-- Toolchain used `stable-x86_64-pc-windows-gnu`
-- [sqlite tools](https://www.sqlite.org/2021/sqlite-tools-win32-x86-3360000.zip)
-- [sqlite dll](https://www.sqlite.org/2021/sqlite-dll-win32-x86-3360000.zip)
-- [mingw](https://sourceforge.net/projects/mingw-w64/files/latest/download)
-- `SQLITE3_LIB_DIR` linked to directory contains sqlite tools & dlls
-- `PATH` linked to directory mingw64\bin
+# Rust API
 
-# Command
-- `cargo install diesel_cli --no-default-features --features "sqlite-bundled"`
-- `cargo install --path .`
-- `diesel setup`
-- `diesel migration generate create_users`
-- edit `migrations\yyyy-mm-dd-tttttt_create_users\up.sql`
-    - ```rust
-        -- Your SQL goes here
-        CREATE TABLE "users" (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            address TEXT NOT NULL,
-            date_created TEXT NOT NULL
-        );
+A small Actix-web REST API backed by SQLite through Diesel. It manages users and performs a daily database maintenance/backup workflow (logs table + attached historical database).
 
-        INSERT INTO
-            "users"(name, address, date_created)
-        VALUES
-        ("Ian", "11 Apple Street", "Today");
-        ```
-- `diesel migration run`
-- edit `src\schema.rs`
-    - ```rust
-        table! {
-            users (id) {
-                id -> Integer,
-                name -> Text,
-                address -> Text,
-                date_created -> Text,
-            }
-        }
-        ```
-- create and edit `src\models.rs`
-    - ```rust
-        use crate::schema::*;
-        use serde::{Deserialize, Serialize};
+## Architecture
 
-        #[derive(Debug, Serialize, Deserialize, Queryable)]
-        pub struct User {
-            pub id: i32,
-            pub name: String,
-            pub address: String,
-            pub date_create: String,
-        }
+```mermaid
+flowchart TD
+    Client[HTTP Client] -->|HTTP requests| Server[Actix-web HttpServer\nlocalhost:8080]
 
-        #[derive(Debug, Insertable)]
-        #[table_name = "users"]
-        pub struct UserNew<'a> {
-            pub name: &'a str,
-            pub address: &'a str,
-            pub date_created: &'a str,
-        }
+    Server --> Router[App Router\nsrc/main.rs]
+    Router --> Routes[Route Handlers\nsrc/routes.rs]
 
-        #[derive(Debug, Serialize, Deserialize)]
-        pub struct UserJson {
-            pub name: String,
-            pub address: String,
-        }
-        ```
-- create and edit `src\routes.rs`
-    - ```rust
-        use crate::models::{User, UserJson, UserNew};
-        use crate::schema::users::dsl::*;
-        use crate::Pool;
+    Routes --> Models[Models\nsrc/models.rs\nUser, UserNew, UserJson, LogEntry]
+    Routes --> Schema[Schema\nsrc/schema.rs\nusers, logs]
+    Routes --> DbManager[DailyDbManager\nsrc/db_manager.rs]
+    Routes --> Macros[SQL macros\nsrc/macros.rs]
 
-        use actix_web::http::StatusCode;
-        use actix_web::{web, Error, HttpResponse};
-        use anyhow::Result;
-        use diesel::dsl::insert_into;
-        use diesel::prelude::*;
-        use diesel::RunQueryDsl;
-        use chrono;
+    DbManager --> FS[(./archive/*.sqlite)]
+    Routes --> Pool[r2d2 Connection Pool]
+    Pool --> SQLite[(SQLite database\ncrud.db)]
 
-        /// public function for default route to import
-        pub async fn root() -> Result<HttpResponse, Error> {
-            Ok(HttpResponse::build(StatusCode::OK)
-                .body("REST API in Rust!"))
-        }
+    Migrations[Diesel migrations\nmigrations/] --> SQLite
+```
 
-        /// public function for /users route to import
-        pub async fn create_user(
-            pool: web::Data<Pool>,
-            item: web::Json<UserJson>,
-        ) -> Result<HttpResponse, Error> {
-            Ok(web::block(|| new_user(pool, item))
-                .await
-                .map(|some_user| HttpResponse::Created().json(some_user))
-                .map_err(|_| HttpResponse::InternalServerError())?)
-        }
+### Module responsibilities
 
-        /// private function for create_user route
-        fn new_user(
-            pool: web::Data<Pool>,
-            item: web::Json<UserJson>,
-        ) -> Result<User, diesel::result::Error> {
-            let db_connection = pool.get().unwrap();
+| Module | Responsibility |
+| --- | --- |
+| `src/main.rs` | Application entry point, connection pool setup, route registration |
+| `src/routes.rs` | HTTP handlers and request/response mapping |
+| `src/models.rs` | Diesel models and JSON request/response structs |
+| `src/schema.rs` | Diesel table definitions |
+| `src/db_manager.rs` | SQLite backup, attach, and detach helpers for daily DB files |
+| `src/macros.rs` | Reusable SQL macros (`union_active_and_attached!`) |
 
-            match users
-                .filter(name.eq(&item.name))
-                .first(&db_connection)
-            {
-                Ok(result) => Ok(result),
-                Err(_) => {
-                    let new_user = UserNew {
-                        name: &item.name,
-                        address: &item.address,
-                        date_created: &format!("{}", chrono::Local::now().naive_local()),
-                    };
+## Available routes
 
-                    insert_into(users)
-                        .values(&new_user)
-                        .execute(&db_connection)
-                        .expect("Error");
+Base URL: `http://localhost:8080`
 
-                    let result = users.order(id.desc()).first(&db_connection).unwrap();
-                    Ok(result)
-                }
-            }
-        }
+| Method | Path | Handler | Description |
+| --- | --- | --- | --- |
+| `GET` | `/` | `routes::root` | Health/info endpoint. Returns `REST API in Rust!` |
+| `POST` | `/users` | `routes::create_user` | Creates a user. If a user with the same name already exists, returns that user instead. Request body: `{ "name": "...", "address": "..." }` |
+| `GET` | `/get_users` | `routes::get_users` | Returns all users as JSON |
+| `POST` | `/tasks` | `routes::create_task` | Creates a task for a user. Request body: `{ "user_id": 1, "title": "...", "description": "...", "status": "to do" }`. `status` is optional and defaults to `to do`; allowed values: `to do`, `in progress`, `done`, `blocked` |
+| `GET` | `/get_tasks` | `routes::get_tasks` | Returns all tasks as JSON, including the owning user's name |
+| `GET` | `/update_db` | `routes::update_db` | Maintenance endpoint. Creates the `logs` table, inserts a log row, then attaches yesterday's archived DB (if present) and unions log rows |
 
-        /// public function for endpoint /getusers to import
-        pub async fn get_users(pool: web::Data<Pool>) -> Result<HttpResponse, Error> {
-            Ok(list_users(pool)
-                .await
-                .map(|some_user| HttpResponse::Ok().json(some_user))
-                .map_err(|_| HttpResponse::InternalServerError())?)
-        }
+### Example requests
 
-        /// private function for get_users route
-        async fn list_users(pool: web::Data<Pool>) -> Result<Vec<User>, diesel::result::Error> {
-            use crate::schema::users::dsl::*;
-            let db_connection = pool.get().unwrap();
-            let result = users.load(&db_connection)?;
-            Ok(result)
-        }
-        ```
-- edit `src\main.rs`
-    - ```rust
-        #[macro_use]
-        extern crate diesel;
+Get all users:
 
-        mod models;
-        mod routes;
-        mod schema;
+```shell
+curl "http://localhost:8080/get_users"
+```
 
-        use actix_web::{web, App, HttpServer};
-        use diesel::r2d2::{self, ConnectionManager};
-        use diesel::SqliteConnection;
+Create a user:
 
-        pub type Pool = r2d2::Pool<ConnectionManager<SqliteConnection>>;
+```shell
+curl "http://localhost:8080/users" \
+  -X POST \
+  -H "content-type: application/json" \
+  -d '{"name":"Fey","address":"145 Av Stovia"}'
+```
 
-        #[actix_web::main]
-        async fn main() -> std::io::Result<()> {
-            dotenv::dotenv().ok();
+Create a task:
 
-            let database_url = std::env::var("DATABASE_URL").expect("NOT FOUND");
-            let database_pool = Pool::builder()
-                .build(ConnectionManager::new(database_url))
-                .unwrap();
+```shell
+curl "http://localhost:8080/tasks" \
+  -X POST \
+  -H "content-type: application/json" \
+  -d '{"user_id":1,"title":"Fix bug","description":"Fix login bug","status":"in progress"}'
+```
 
-            HttpServer::new(move || {
-                App::new()
-                    .data(database_pool.clone())
-                    .route("/", web::get().to(routes::root))
-                    .route("/users", web::post().to(routes::create_user))
-                    .route("/getusers", web::get().to(routes::get_users))
-            })
-            .bind("localhost:8080")?
-            .run()
-            .await
-        }
-        ```
-- check using curl
-    - Get user 
-      ```shell
-        curl "http://localhost:8080/getusers"
-        ```
-    - Post newuser
-      ```shell
-        curl "http://localhost:8080/users" \
-            -X POST \
-            -d "{\r\n  \"name\": \"Fey\",\r\n  \"address\": \"145 Av Stovia\"\r\n}" \
-            -H "content-type: application/json" 
-        ```
+List tasks:
+
+```shell
+curl "http://localhost:8080/get_tasks"
+```
+
+Run database maintenance:
+
+```shell
+curl "http://localhost:8080/update_db"
+```
+
+## Database schema
+
+### `users`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `INTEGER` | Primary key, autoincrement |
+| `name` | `TEXT` | Not null |
+| `address` | `TEXT` | Not null |
+| `date_created` | `TEXT` | Not null |
+
+### `logs`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `INTEGER` | Primary key, autoincrement, nullable in model |
+| `message` | `TEXT` | Not null |
+| `timestamp` | `TEXT` | Not null |
+
+### `tasks`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `INTEGER` | Primary key, autoincrement |
+| `user_id` | `INTEGER` | Foreign key to `users.id`, not null |
+| `title` | `TEXT` | Not null |
+| `description` | `TEXT` | Not null |
+| `status` | `TEXT` | One of `to do`, `in progress`, `done`, `blocked` |
+| `created_at` | `TEXT` | ISO 8601 datetime string |
+| `updated_at` | `TEXT` | ISO 8601 datetime string, updated when task is edited |
+
+## Setup
+
+### Prerequisites
+
+- Rust toolchain (`rustup`, `cargo`)
+- Optional: Diesel CLI for running migrations manually
+
+```shell
+cargo install diesel_cli --no-default-features --features "sqlite-bundled"
+```
+
+The project uses the bundled SQLite feature through `libsqlite3-sys`, so a separate system SQLite installation is usually not required.
+
+### 1. Clone the repository
+
+```shell
+git clone <repository-url>
+cd rust-api
+```
+
+### 2. Configure environment
+
+Create a `.env` file in the project root:
+
+```env
+DATABASE_URL=crud.db
+```
+
+### 3. Run migrations
+
+Apply the included Diesel migrations to create the database schema:
+
+```shell
+diesel migration run
+```
+
+This creates `crud.db` and the `users` and `logs` tables.
+
+### 4. Build the project
+
+```shell
+cargo build
+```
+
+### 5. Run the server
+
+```shell
+cargo run
+```
+
+The API will be available at `http://localhost:8080`.
+
+### 6. Verify
+
+```shell
+curl "http://localhost:8080/"
+```
+
+Expected response:
+
+```text
+REST API in Rust!
+```
+
+## Development notes
+
+- Archived daily databases are stored in `./archive/` as `db_YYYY-MM-DD.sqlite`.
+- `DailyDbManager::attach_historical_db` attaches yesterday's archive during `/update_db` if it exists.
+- The `/update_db` route uses `GET` even though it performs writes; consider changing it to `POST` for stricter REST semantics.

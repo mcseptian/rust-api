@@ -1,0 +1,2 @@
+-- migrations/<timestamp>_create_users/up.sql
+-- migrations/<timestamp>_create_logs/up.sql

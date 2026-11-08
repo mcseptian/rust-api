@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -e
+
+# 1. Get a list of staged Rust files safely (handling spaces correctly)
+files=$(git diff --name-only --staged -- '*.rs')
+
+if [ -n "$files" ]; then
+    echo "🔍 Formatting staged Rust files with cargo fmt..."
+    cargo fmt
+    git add $files
+fi
+
+# 2. Run Clippy across all targets to catch bugs/warnings matching CI
+echo "🛠️ Running cargo clippy..."
+if ! cargo clippy --all-targets -- -D warnings; then
+    echo ""
+    echo "Commit rejected: Clippy found warnings or errors."
+    echo "👉 Fix the issues reported above, stage your changes, and try committing again."
+    exit 1
+fi
+
+echo "✅ All checks passed successfully!"
